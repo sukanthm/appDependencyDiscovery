@@ -6,30 +6,49 @@ else
     echo running app dependency discovery agent for $counter seconds
 fi
 
-fqdn=$(hostname -f)
+fqdn=$(hostname).$(hostname -d)  # hostname -f fails if no dns name is set
 hostName=$(hostname)
-ipPrivate=($(hostname -i))
+ipPrivate1=($(hostname -i))
+ipPrivate2=($(hostname -I))
 ipPublic=($(dig +short myip.opendns.com @resolver1.opendns.com))
+ipString1=""
+ipString2=""
 
 echo FQDN = $fqdn; echo FQDN = $fqdn &> hostDetails_${fqdn}
-#echo hostName = $hostName; 
 echo hostName = $hostName >> hostDetails_${fqdn}
-#echo private ip = ${ipPrivate[0]}; 
-echo private ip = ${ipPrivate[0]} >> hostDetails_${fqdn}
-#echo public ip = ${ipPublic[0]}; 
-echo public ip = ${ipPublic[0]} >> hostDetails_${fqdn}
-#printf "\n"
+for i in "${ipPrivate1[@]}"
+do
+    echo private ip = "$i" >> hostDetails_${fqdn}
+    ipString1=" $ipString1 dst host $i or "
+    ipString2=" $ipString2 s/$i/${fqdn}/g; "
+done
+for i in "${ipPrivate2[@]}"
+do
+    echo private ip = "$i" >> hostDetails_${fqdn}
+    ipString1=" $ipString1 dst host $i or "
+    ipString2=" $ipString2 s/$i/${fqdn}/g; "
+done
+for i in "${ipPublic[@]}"
+do
+    echo public ip = "$i" >> hostDetails_${fqdn}
+    ipString1=" $ipString1 dst host $i or "
+    ipString2=" $ipString2 s/$i/${fqdn}/g; "
+done
+ipString1=" $ipString1 dst host 127.0.0.1 "
+awk '!a[$0]++' hostDetails_${fqdn} &> hostDetails.tmp #deL duplicates
+mv hostDetails.tmp hostDetails_${fqdn}
+
 
 dt=$(date '+%Y%m%d_%H%M%S');
 echo "$dt" &> sockets_${fqdn}
-ss -plntu >> sockets_${fqdn}
+sudo ss -plntu >> sockets_${fqdn}
 var1=$(ss -lntu | awk '{ print $5 }' | grep -oP "[\d]*$" | awk '!a[$0]++' | sort -nk1 | tr '\n' ' ' ) #take 5th column; regex for ports; remove duplicates; sort ascendin;, concat rows
 echo started sokcet monitoring
 echo current socket list \= $var1
 
-cmd="tcpdump \"(tcp[tcpflags] == tcp-syn or udp) and (dst host 127.0.0.1 or dst host ${ipPrivate[0]} or dst host ${ipPublic[0]})\" -ttttnnqi any &> tcpDump_${fqdn}"
-echo executing: $cmd
-eval "nohup $cmd &"
+cmd="nohup sudo tcpdump \"(tcp[tcpflags] == tcp-syn or udp) and ($ipString1)\" -ttttnnqi any &> tcpDump_${fqdn} &"
+echo "executing: $cmd"
+eval "$cmd"
 pID=$!
 echo pID is $pID
 
@@ -44,7 +63,7 @@ do
             echo socket list changed \= $var2
             if [ ${#var2} -ge ${#var1} ];then
                 echo "$dt" >> sockets_${fqdn}
-                ss -plntu >> sockets_${fqdn}
+                sudo ss -plntu >> sockets_${fqdn}
                 awk '!a[$0]++' sockets_${fqdn} &> sockets.tmp #deL duplicates
                 mv sockets.tmp sockets_${fqdn}
             fi
@@ -53,10 +72,10 @@ do
     sleep 1s
 done
 
-echo interrupting pID $pID process
-kill -s SIGINT $pID
+echo interrupting process $pID
+sudo kill -s SIGINT $(pgrep -P ${pID})
 
-cmd="sed '1,2d; s/${ipPrivate[0]}/${fqdn}/g; s/${ipPublic[0]}/${fqdn}/g; s/127.0.0.1/${fqdn}/g' tcpDump_${fqdn} &> tcpDump.tmp" #del top 2 lines; replace ipPrivate,ipPublic,localhost with FQDN
+cmd="sed '1,2d; s/127.0.0.1/${fqdn}/g; ${ipString2}' tcpDump_${fqdn} &> tcpDump.tmp" #del top 2 lines; replace ipPrivate,ipPublic,localhost with FQDN
 eval $cmd
 sed -n -e :a -e '1,4!{P;N;D;};N;ba' tcpDump.tmp &> tcpDump_${fqdn} #del bottom 4 lines
 rm tcpDump.tmp
@@ -73,3 +92,4 @@ echo ${fqdn}_${dt}.tar.gz created
 #curl -kX POST https://ip:443/upload -H "authKey: blah" -d @${fqdn}.tar.gz
 
 echo script complete \:\)
+exit 0
