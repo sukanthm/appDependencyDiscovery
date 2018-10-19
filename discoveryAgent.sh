@@ -46,12 +46,15 @@ var1=$(ss -lntu | awk '{ print $5 }' | grep -oP "[\d]*$" | awk '!a[$0]++' | sort
 echo started sokcet monitoring
 echo current socket list \= $var1
 
-cmd="nohup sudo tcpdump \"(tcp[tcpflags] == tcp-syn or udp) and ($ipString1)\" -ttttnnqi any &> tcpDump_${fqdn} &"
+#cmd="nohup sudo tcpdump \"(tcp[tcpflags] == tcp-syn or udp) and ($ipString1)\" -ttttnnqi any &> tcpDump_${fqdn} &"
+cmd="nohup sudo tcpdump \"(tcp or udp) and ($ipString1)\" -ttttnnqi any &> tcpDump_${fqdn} &"
 echo "executing: $cmd"
 eval "$cmd"
 pID=$!
 echo pID is $pID
+printf '\n'
 
+sp="/-\|"
 i=0
 while [ $i -lt $counter ]
 do
@@ -69,9 +72,11 @@ do
             fi
             var1=$var2
     fi
+    printf "\b${sp:i++%${#sp}:1}"
     sleep 1s
 done
 
+printf '\n'
 echo interrupting process $pID
 sudo kill -s SIGINT $(pgrep -P ${pID})
 
@@ -89,7 +94,6 @@ mv sockets_${fqdn} sockets_${fqdn}_${dt}
 mv tcpDump_${fqdn} tcpDump_${fqdn}_${dt}
 tar czf ${fqdn}_${dt}.tar.gz hostDetails_${fqdn}_${dt} sockets_${fqdn}_${dt} tcpDump_${fqdn}_${dt} --remove-files
 echo ${fqdn}_${dt}.tar.gz created
-#curl -kX POST https://ip:443/upload -H "authKey: blah" -d @${fqdn}.tar.gz
 
 echo script complete \:\)
 exit 0
